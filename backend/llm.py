@@ -7,7 +7,7 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-MODEL = "gemini-2.5-flash-lite"
+MODEL = "gemini-3.1-flash"
 MAX_TOKENS = 256
 
 SYSTEM_PROMPT = (
