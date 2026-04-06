@@ -211,54 +211,33 @@ function isSpanish(text) {
 }
 
 // Voice input
+const IS_ANDROID = /android/i.test(navigator.userAgent);
+
 function initRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return null;
     const r = new SR();
-    // continuous=false on Android to avoid duplicate results
-    const isAndroid = /android/i.test(navigator.userAgent);
-    r.continuous = !isAndroid;
-    r.interimResults = true;
+    r.continuous = false;
+    r.interimResults = !IS_ANDROID; // Disable interim on Android to avoid duplication
     r.lang = voiceLang === "es" ? "es-ES" : "fr-FR";
 
-    let silenceTimer = null;
     let restartCount = 0;
     const MAX_RESTARTS = 5;
-    let lastFinalIndex = -1;
-    let collectedFinal = "";
 
     r.onresult = (e) => {
-        let interim = "";
-        let newFinal = "";
+        // On Android: only take the very last result
+        // On other platforms: show interim, take final
+        const lastResult = e.results[e.results.length - 1];
+        const transcript = lastResult[0].transcript;
 
-        for (let i = 0; i < e.results.length; i++) {
-            const result = e.results[i];
-            if (result.isFinal) {
-                // Only process new final results (skip already processed ones)
-                if (i > lastFinalIndex) {
-                    newFinal += result[0].transcript;
-                    lastFinalIndex = i;
-                }
-            } else {
-                interim += result[0].transcript;
-            }
-        }
-
-        if (newFinal) collectedFinal += newFinal;
-
-        const display = collectedFinal + interim;
-        inputText.value = display;
-        charCount.textContent = display.length;
+        inputText.value = transcript;
+        charCount.textContent = transcript.length;
         recordingIndicator.querySelector("span").textContent =
-            display || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
+            transcript || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
 
-        clearTimeout(silenceTimer);
-        if (collectedFinal.trim()) {
-            restartCount = 0;
-            silenceTimer = setTimeout(() => {
-                stopRecording();
-                translateText();
-            }, 1500);
+        if (lastResult.isFinal) {
+            stopRecording();
+            translateText();
         }
     };
 
@@ -279,19 +258,8 @@ function initRecognition() {
 
     r.onend = () => {
         if (!isRecording) return;
-        if (collectedFinal.trim()) {
-            // On Android (continuous=false), auto-translate after speech ends
-            if (isAndroid) {
-                stopRecording();
-                translateText();
-                return;
-            }
-            stopRecording();
-            translateText();
-        } else if (restartCount < MAX_RESTARTS) {
+        if (restartCount < MAX_RESTARTS) {
             restartCount++;
-            lastFinalIndex = -1;
-            collectedFinal = "";
             setTimeout(() => { try { r.start(); } catch { stopRecording(); } }, 300);
         } else {
             stopRecording();
