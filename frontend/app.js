@@ -13,7 +13,6 @@ const charCount = document.getElementById("char-count");
 const translationTime = document.getElementById("translation-time");
 const historyList = document.getElementById("history-list");
 const recordingIndicator = document.getElementById("recording-indicator");
-
 const btnLangToggle = document.getElementById("btn-lang-toggle");
 
 // State
@@ -21,42 +20,42 @@ let isTranslating = false;
 let history = JSON.parse(localStorage.getItem("trad_history") || "[]");
 let recognition = null;
 let isRecording = false;
-let voiceLang = "fr"; // "fr" or "es" — language for speech recognition
+let voiceLang = "fr";
+let abortController = null;
 
-// Init lang toggle button
+// Lang toggle
 btnLangToggle.classList.add("fr");
 btnLangToggle.textContent = "FR";
 
 btnLangToggle.addEventListener("click", () => {
-    if (voiceLang === "fr") {
-        voiceLang = "es";
-        btnLangToggle.textContent = "ES";
-        btnLangToggle.classList.remove("fr");
-        btnLangToggle.classList.add("es");
-    } else {
-        voiceLang = "fr";
-        btnLangToggle.textContent = "FR";
-        btnLangToggle.classList.remove("es");
-        btnLangToggle.classList.add("fr");
-    }
-    // Reset recognition so it picks up new lang
+    const next = voiceLang === "fr" ? "es" : "fr";
+    btnLangToggle.textContent = next.toUpperCase();
+    btnLangToggle.classList.replace(voiceLang, next);
+    voiceLang = next;
     if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
 });
 
-// === Character count ===
+// Character count (debounced)
+let charCountRaf = 0;
 inputText.addEventListener("input", () => {
-    charCount.textContent = inputText.value.length;
+    cancelAnimationFrame(charCountRaf);
+    charCountRaf = requestAnimationFrame(() => {
+        charCount.textContent = inputText.value.length;
+    });
 });
 
-// === Translate (streaming) ===
-async function translateText() {
+// Translate (streaming with retry)
+const MAX_RETRIES = 2;
+const RETRY_DELAY = 1000;
+
+async function translateText(retryCount = 0) {
     const text = inputText.value.trim();
     if (!text || isTranslating) return;
 
     isTranslating = true;
     btnTranslate.disabled = true;
     btnTranslate.classList.add("loading");
-    outputText.innerHTML = "";
+    outputText.textContent = "";
     outputText.classList.remove("placeholder");
     translationTime.textContent = "";
     btnCopy.style.display = "none";
@@ -65,16 +64,23 @@ async function translateText() {
     const t0 = performance.now();
     let fullText = "";
 
+    abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), 30000);
+
     try {
         const res = await fetch(`${API}/api/translate/stream`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ text }),
+            signal: abortController.signal,
         });
+
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        let pendingUpdate = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -90,16 +96,37 @@ async function translateText() {
                     const d = JSON.parse(line.slice(6));
                     if (d.type === "text") {
                         fullText += d.content;
-                        outputText.textContent = fullText;
                     } else if (d.type === "done") {
                         fullText = d.full_text;
-                        outputText.textContent = fullText;
                     }
                 } catch {}
             }
+
+            // Batch DOM updates via rAF
+            if (!pendingUpdate) {
+                pendingUpdate = requestAnimationFrame(() => {
+                    outputText.textContent = fullText;
+                    pendingUpdate = null;
+                });
+            }
         }
+
+        // Final sync update
+        if (pendingUpdate) cancelAnimationFrame(pendingUpdate);
+        outputText.textContent = fullText;
     } catch (err) {
-        outputText.textContent = `Erreur: ${err.message}`;
+        if (err.name === "AbortError") {
+            outputText.textContent = "Traduction interrompue (timeout).";
+        } else if (retryCount < MAX_RETRIES) {
+            finishTranslation();
+            await new Promise(r => setTimeout(r, RETRY_DELAY * (retryCount + 1)));
+            return translateText(retryCount + 1);
+        } else {
+            outputText.textContent = `Erreur: ${err.message}. Veuillez réessayer.`;
+        }
+    } finally {
+        clearTimeout(timeout);
+        abortController = null;
     }
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
@@ -111,19 +138,18 @@ async function translateText() {
         addToHistory(text, fullText);
     }
 
+    finishTranslation();
+}
+
+function finishTranslation() {
     isTranslating = false;
     btnTranslate.disabled = false;
     btnTranslate.classList.remove("loading");
 }
 
-// === Keyboard shortcut: Ctrl+Enter or Enter to translate ===
+// Keyboard shortcut: Enter or Ctrl+Enter
 inputText.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        translateText();
-    }
-    // Enter sans Shift traduit aussi (pour phrases simples)
-    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey) {
+    if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         translateText();
     }
@@ -131,8 +157,9 @@ inputText.addEventListener("keydown", (e) => {
 
 btnTranslate.addEventListener("click", translateText);
 
-// === Clear ===
+// Clear
 btnClear.addEventListener("click", () => {
+    if (abortController) abortController.abort();
     inputText.value = "";
     outputText.innerHTML = '<span class="placeholder">La traduction apparaitra ici...</span>';
     charCount.textContent = "0";
@@ -142,7 +169,7 @@ btnClear.addEventListener("click", () => {
     inputText.focus();
 });
 
-// === Copy (with fallback for HTTP) ===
+// Copy (with fallback for HTTP)
 btnCopy.addEventListener("click", async () => {
     const text = outputText.textContent;
     if (!text) return;
@@ -151,8 +178,7 @@ btnCopy.addEventListener("click", async () => {
     } catch {
         const ta = document.createElement("textarea");
         ta.value = text;
-        ta.style.position = "fixed";
-        ta.style.opacity = "0";
+        Object.assign(ta.style, { position: "fixed", opacity: "0" });
         document.body.appendChild(ta);
         ta.select();
         document.execCommand("copy");
@@ -166,31 +192,25 @@ btnCopy.addEventListener("click", async () => {
     }, 800);
 });
 
-// === TTS (browser) ===
+// TTS
 btnSpeak.addEventListener("click", () => {
     const text = outputText.textContent;
     if (!text) return;
-
     speechSynthesis.cancel();
     const utt = new SpeechSynthesisUtterance(text);
-
-    // Detect language of output (opposite of input)
-    if (isSpanish(inputText.value)) {
-        utt.lang = "fr-FR";
-    } else {
-        utt.lang = "es-ES";
-    }
+    utt.lang = isSpanish(inputText.value) ? "fr-FR" : "es-ES";
     utt.rate = 1.0;
     speechSynthesis.speak(utt);
 });
 
-// === Simple language detection ===
+// Language detection
+const ES_REGEX = /[¿¡ñáéíóúü]|(\b(el|la|los|las|un|una|unos|unas|es|está|son|hola|como|qué|por|para|pero|con|sin|más|muy|también|tiene|hace|puede|esta|ese|esa|esto|aquí|ahora|donde|cuando|porque|si|no|ya|hay|ser|estar|tener|hacer|poder|decir|saber|querer|llegar|pasar|deber|poner|parecer|quedar|creer|hablar|llevar|dejar|seguir|encontrar|llamar|venir|pensar|salir|volver|tomar|conocer|vivir|sentir|tratar|mirar|contar|empezar|esperar|buscar|existir|entrar|trabajar|escribir|perder|producir|ocurrir|entender|pedir|recibir|recordar|terminar|permitir|aparecer|conseguir|comenzar|servir|sacar|necesitar|mantener|resultar|leer|caer|cambiar|presentar|crear|abrir|considerar|oír|acabar|convertir|ganar|formar)\b)/i;
+
 function isSpanish(text) {
-    const esMarkers = /[¿¡ñáéíóúü]|(\b(el|la|los|las|un|una|unos|unas|es|está|son|hola|como|qué|por|para|pero|con|sin|más|muy|también|tiene|hace|puede|esta|ese|esa|esto|aquí|ahora|donde|cuando|porque|si|no|ya|hay|ser|estar|tener|hacer|poder|decir|saber|querer|llegar|pasar|deber|poner|parecer|quedar|creer|hablar|llevar|dejar|seguir|encontrar|llamar|venir|pensar|salir|volver|tomar|conocer|vivir|sentir|tratar|mirar|contar|empezar|esperar|buscar|existir|entrar|trabajar|escribir|perder|producir|ocurrir|entender|pedir|recibir|recordar|terminar|permitir|aparecer|conseguir|comenzar|servir|sacar|necesitar|mantener|resultar|leer|caer|cambiar|presentar|crear|abrir|considerar|oír|acabar|convertir|ganar|formar)\b)/i;
-    return esMarkers.test(text);
+    return ES_REGEX.test(text);
 }
 
-// === Voice input ===
+// Voice input
 function initRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return null;
@@ -201,26 +221,30 @@ function initRecognition() {
 
     let finalText = "";
     let silenceTimer = null;
+    let restartCount = 0;
+    const MAX_RESTARTS = 5;
 
     r.onresult = (e) => {
         let interim = "";
         finalText = "";
         for (let i = 0; i < e.results.length; i++) {
-            if (e.results[i].isFinal) {
-                finalText += e.results[i][0].transcript;
+            const result = e.results[i];
+            if (result.isFinal) {
+                finalText += result[0].transcript;
             } else {
-                interim += e.results[i][0].transcript;
+                interim += result[0].transcript;
             }
         }
 
         const display = finalText + interim;
         inputText.value = display;
         charCount.textContent = display.length;
-        recordingIndicator.querySelector("span").textContent = display || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
+        recordingIndicator.querySelector("span").textContent =
+            display || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
 
-        // Auto-translate after 1.5s of silence following final result
         clearTimeout(silenceTimer);
         if (finalText.trim()) {
+            restartCount = 0;
             silenceTimer = setTimeout(() => {
                 stopRecording();
                 translateText();
@@ -228,15 +252,31 @@ function initRecognition() {
         }
     };
 
-    r.onerror = () => stopRecording();
+    r.onerror = (e) => {
+        if (e.error === "no-speech" && isRecording && restartCount < MAX_RESTARTS) {
+            restartCount++;
+            try { r.start(); } catch {}
+            return;
+        }
+        if (e.error === "not-allowed" || e.error === "service-not-available") {
+            recordingIndicator.querySelector("span").textContent =
+                "Micro non disponible";
+            setTimeout(stopRecording, 1500);
+            return;
+        }
+        stopRecording();
+    };
+
     r.onend = () => {
-        // If we have text and recording stopped naturally, translate
-        if (isRecording && finalText.trim()) {
+        if (!isRecording) return;
+        if (finalText.trim()) {
             stopRecording();
             translateText();
-        } else if (isRecording) {
-            // Restart if no result yet (browser timeout)
-            try { r.start(); } catch {}
+        } else if (restartCount < MAX_RESTARTS) {
+            restartCount++;
+            try { r.start(); } catch { stopRecording(); }
+        } else {
+            stopRecording();
         }
     };
 
@@ -244,54 +284,81 @@ function initRecognition() {
 }
 
 function startRecording() {
-    // Recreate recognition each time to pick up current voiceLang
     recognition = initRecognition();
-    if (!recognition) return alert("Navigateur non supporté. Utilise Chrome.");
+    if (!recognition) {
+        recordingIndicator.querySelector("span").textContent =
+            "Navigateur non supporté";
+        recordingIndicator.style.display = "flex";
+        setTimeout(() => { recordingIndicator.style.display = "none"; }, 2000);
+        return;
+    }
 
     isRecording = true;
     btnMic.classList.add("active");
     recordingIndicator.style.display = "flex";
-    recordingIndicator.querySelector("span").textContent = voiceLang === "es" ? "Escuchando..." : "Ecoute...";
-    recognition.start();
+    recordingIndicator.querySelector("span").textContent =
+        voiceLang === "es" ? "Escuchando..." : "Ecoute...";
+
+    try {
+        recognition.start();
+    } catch {
+        stopRecording();
+    }
 }
 
 function stopRecording() {
     isRecording = false;
     btnMic.classList.remove("active");
     recordingIndicator.style.display = "none";
-    if (recognition) try { recognition.stop(); } catch {}
+    if (recognition) { try { recognition.stop(); } catch {} }
 }
 
+// Mic: click + touch
 btnMic.addEventListener("click", () => {
     isRecording ? stopRecording() : startRecording();
 });
 
-// === History ===
+// Prevent double-tap zoom on mobile for mic button
+btnMic.addEventListener("touchend", (e) => {
+    e.preventDefault();
+    btnMic.click();
+});
+
+// History
 function addToHistory(original, translated) {
-    // Avoid duplicates
     history = history.filter(h => h.original !== original);
     history.unshift({ original, translated, time: Date.now() });
-    if (history.length > 20) history = history.slice(0, 20);
+    if (history.length > 20) history.length = 20;
     localStorage.setItem("trad_history", JSON.stringify(history));
     renderHistory();
 }
 
 function renderHistory() {
-    historyList.innerHTML = "";
-    for (const h of history.slice(0, 10)) {
+    const fragment = document.createDocumentFragment();
+    const items = history.slice(0, 10);
+
+    for (const h of items) {
         const li = document.createElement("li");
-        const origShort = h.original.length > 40 ? h.original.slice(0, 40) + "..." : h.original;
-        const tradShort = h.translated.length > 40 ? h.translated.slice(0, 40) + "..." : h.translated;
-        li.innerHTML = `<span class="original">${escHtml(origShort)}</span><span class="sep">→</span><span class="translated">${escHtml(tradShort)}</span>`;
+        const origShort = truncate(h.original, 40);
+        const tradShort = truncate(h.translated, 40);
+        li.innerHTML = `<span class="original">${escHtml(origShort)}</span><span class="sep">\u2192</span><span class="translated">${escHtml(tradShort)}</span>`;
         li.addEventListener("click", () => {
             inputText.value = h.original;
             outputText.textContent = h.translated;
+            outputText.classList.remove("placeholder");
             charCount.textContent = h.original.length;
             btnCopy.style.display = "flex";
             btnSpeak.style.display = "flex";
         });
-        historyList.appendChild(li);
+        fragment.appendChild(li);
     }
+
+    historyList.innerHTML = "";
+    historyList.appendChild(fragment);
+}
+
+function truncate(s, max) {
+    return s.length > max ? s.slice(0, max) + "..." : s;
 }
 
 function escHtml(s) {
