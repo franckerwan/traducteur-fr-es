@@ -7,8 +7,9 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-MODEL = "gemini-3.1-flash"
+MODEL = "gemini-2.5-flash"
 MAX_TOKENS = 256
+THINKING_BUDGET = 1024
 
 SYSTEM_PROMPT = (
     "Traducteur FR↔ES strict. "
@@ -20,7 +21,7 @@ _config = genai.types.GenerateContentConfig(
     system_instruction=SYSTEM_PROMPT,
     temperature=0.0,
     max_output_tokens=MAX_TOKENS,
-    top_k=1,
+    thinking_config=genai.types.ThinkingConfig(thinking_budget=THINKING_BUDGET),
 )
 
 # Patterns parasites que le modèle peut ajouter
