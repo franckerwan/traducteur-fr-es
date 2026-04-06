@@ -215,35 +215,45 @@ function initRecognition() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) return null;
     const r = new SR();
-    r.continuous = true;
+    // continuous=false on Android to avoid duplicate results
+    const isAndroid = /android/i.test(navigator.userAgent);
+    r.continuous = !isAndroid;
     r.interimResults = true;
     r.lang = voiceLang === "es" ? "es-ES" : "fr-FR";
 
-    let finalText = "";
     let silenceTimer = null;
     let restartCount = 0;
     const MAX_RESTARTS = 5;
+    let lastFinalIndex = -1;
+    let collectedFinal = "";
 
     r.onresult = (e) => {
         let interim = "";
-        finalText = "";
+        let newFinal = "";
+
         for (let i = 0; i < e.results.length; i++) {
             const result = e.results[i];
             if (result.isFinal) {
-                finalText += result[0].transcript;
+                // Only process new final results (skip already processed ones)
+                if (i > lastFinalIndex) {
+                    newFinal += result[0].transcript;
+                    lastFinalIndex = i;
+                }
             } else {
                 interim += result[0].transcript;
             }
         }
 
-        const display = finalText + interim;
+        if (newFinal) collectedFinal += newFinal;
+
+        const display = collectedFinal + interim;
         inputText.value = display;
         charCount.textContent = display.length;
         recordingIndicator.querySelector("span").textContent =
             display || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
 
         clearTimeout(silenceTimer);
-        if (finalText.trim()) {
+        if (collectedFinal.trim()) {
             restartCount = 0;
             silenceTimer = setTimeout(() => {
                 stopRecording();
@@ -255,7 +265,7 @@ function initRecognition() {
     r.onerror = (e) => {
         if (e.error === "no-speech" && isRecording && restartCount < MAX_RESTARTS) {
             restartCount++;
-            try { r.start(); } catch {}
+            setTimeout(() => { try { r.start(); } catch {} }, 300);
             return;
         }
         if (e.error === "not-allowed" || e.error === "service-not-available") {
@@ -269,12 +279,20 @@ function initRecognition() {
 
     r.onend = () => {
         if (!isRecording) return;
-        if (finalText.trim()) {
+        if (collectedFinal.trim()) {
+            // On Android (continuous=false), auto-translate after speech ends
+            if (isAndroid) {
+                stopRecording();
+                translateText();
+                return;
+            }
             stopRecording();
             translateText();
         } else if (restartCount < MAX_RESTARTS) {
             restartCount++;
-            try { r.start(); } catch { stopRecording(); }
+            lastFinalIndex = -1;
+            collectedFinal = "";
+            setTimeout(() => { try { r.start(); } catch { stopRecording(); } }, 300);
         } else {
             stopRecording();
         }
