@@ -218,26 +218,35 @@ function initRecognition() {
     if (!SR) return null;
     const r = new SR();
     r.continuous = false;
-    r.interimResults = !IS_ANDROID; // Disable interim on Android to avoid duplication
+    r.interimResults = !IS_ANDROID;
     r.lang = voiceLang === "es" ? "es-ES" : "fr-FR";
+    r.maxAlternatives = 3; // More alternatives = better chance of correct transcription
 
     let restartCount = 0;
     const MAX_RESTARTS = 5;
 
     r.onresult = (e) => {
-        // On Android: only take the very last result
-        // On other platforms: show interim, take final
         const lastResult = e.results[e.results.length - 1];
-        const transcript = lastResult[0].transcript;
 
-        inputText.value = transcript;
-        charCount.textContent = transcript.length;
+        // Pick best alternative: highest confidence
+        let bestTranscript = lastResult[0].transcript;
+        let bestConfidence = lastResult[0].confidence || 0;
+        for (let a = 1; a < lastResult.length; a++) {
+            if (lastResult[a].confidence > bestConfidence) {
+                bestConfidence = lastResult[a].confidence;
+                bestTranscript = lastResult[a].transcript;
+            }
+        }
+
+        inputText.value = bestTranscript;
+        charCount.textContent = bestTranscript.length;
         recordingIndicator.querySelector("span").textContent =
-            transcript || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
+            bestTranscript || (voiceLang === "es" ? "Escuchando..." : "Ecoute...");
 
         if (lastResult.isFinal) {
             stopRecording();
-            translateText();
+            // Auto-translate after short delay so user can see/correct the text
+            setTimeout(() => translateText(), 600);
         }
     };
 
