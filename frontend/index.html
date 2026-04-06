@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traducteur FR - ES</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="app">
+        <header>
+            <h1>Traducteur <span class="flag">FR</span> <span class="arrow">&#8596;</span> <span class="flag">ES</span></h1>
+            <p class="subtitle">Traduction instantanée Français - Espagnol</p>
+        </header>
+
+        <div id="translator">
+            <div class="panel input-panel">
+                <div class="panel-header">
+                    <span id="input-lang">Texte source</span>
+                    <button id="btn-lang-toggle" class="btn-lang" title="Changer la langue vocale">FR</button>
+                </div>
+                <textarea id="input-text" placeholder="Écris en français ou en espagnol..." autofocus></textarea>
+                <div class="panel-footer">
+                    <span id="char-count">0</span>
+                    <div class="actions">
+                        <button id="btn-mic" class="btn-circle" title="Dicter">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                <line x1="12" y1="19" x2="12" y2="23"/>
+                                <line x1="8" y1="23" x2="16" y2="23"/>
+                            </svg>
+                        </button>
+                        <button id="btn-clear" class="btn-circle" title="Effacer">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="18" y1="6" x2="6" y2="18"/>
+                                <line x1="6" y1="6" x2="18" y2="18"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <button id="btn-translate" class="btn-translate" title="Traduire">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+                </svg>
+            </button>
+
+            <div class="panel output-panel">
+                <div class="panel-header">
+                    <span id="output-lang">Traduction</span>
+                </div>
+                <div id="output-text" class="output-area">
+                    <span class="placeholder">La traduction apparaitra ici...</span>
+                </div>
+                <div class="panel-footer">
+                    <span id="translation-time"></span>
+                    <div class="actions">
+                        <button id="btn-copy" class="btn-circle" title="Copier" style="display:none;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                            </svg>
+                        </button>
+                        <button id="btn-speak" class="btn-circle" title="Lire" style="display:none;">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Historique rapide -->
+        <div id="history-section">
+            <div class="section-header">
+                <h2>Historique</h2>
+                <button id="btn-clear-history" class="btn-small" title="Effacer l'historique">Effacer</button>
+            </div>
+            <ul id="history-list"></ul>
+        </div>
+    </div>
+
+    <!-- Recording indicator -->
+    <div id="recording-indicator" style="display:none;">
+        <div class="recording-pulse"></div>
+        <span>Dictee en cours...</span>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
