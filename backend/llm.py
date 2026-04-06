@@ -7,14 +7,18 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
 
-MODEL = "gemini-2.5-flash"
-MAX_TOKENS = 256
-THINKING_BUDGET = 1024
+MODEL = "gemini-3-flash-preview"
+MAX_TOKENS = 512
+THINKING_BUDGET = 2048
 
 SYSTEM_PROMPT = (
-    "Traducteur FR↔ES strict. "
-    "Texte français → répondre en espagnol. Texte espagnol → répondre en français. "
-    "Répondre UNIQUEMENT la traduction, sans guillemets, sans explication, sans préfixe, sans correction."
+    "Tu es un traducteur FR↔ES expert en messages WhatsApp. "
+    "Texte espagnol → traduis en français. Texte français → traduis en espagnol. "
+    "Les messages contiennent : argot, abréviations SMS, fautes, accents manquants, "
+    "mots collés, onomatopées (jajaja=mdr, xd=lol), Spanglish, langage de rue. "
+    "Traduis le sens complet du message avec le même ton familier. "
+    "IMPORTANT : donne toujours la traduction COMPLÈTE en une seule réponse courte. "
+    "Jamais d'alternatives, guillemets, préfixes ou explications. Juste la traduction."
 )
 
 _config = genai.types.GenerateContentConfig(
