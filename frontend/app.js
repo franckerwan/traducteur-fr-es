@@ -17,7 +17,8 @@ const btnLangToggle = document.getElementById("btn-lang-toggle");
 
 // State
 let isTranslating = false;
-let history = JSON.parse(localStorage.getItem("trad_history") || "[]");
+let history = [];
+try { history = JSON.parse(localStorage.getItem("trad_history") || "[]"); } catch { history = []; }
 let recognition = null;
 let isRecording = false;
 let voiceLang = "fr";
@@ -32,7 +33,7 @@ btnLangToggle.addEventListener("click", () => {
     btnLangToggle.textContent = next.toUpperCase();
     btnLangToggle.classList.replace(voiceLang, next);
     voiceLang = next;
-    if (recognition) { try { recognition.stop(); } catch {} recognition = null; }
+    if (isRecording) stopRecording();
 });
 
 // Character count (debounced)
@@ -67,6 +68,9 @@ async function translateText(retryCount = 0) {
     abortController = new AbortController();
     const timeout = setTimeout(() => abortController.abort(), 30000);
 
+    let pendingUpdate = null;
+    let retrying = false;
+
     try {
         const res = await fetch(`${API}/api/translate/stream`, {
             method: "POST",
@@ -80,7 +84,6 @@ async function translateText(retryCount = 0) {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
-        let pendingUpdate = null;
 
         while (true) {
             const { done, value } = await reader.read();
@@ -111,22 +114,38 @@ async function translateText(retryCount = 0) {
             }
         }
 
+        // Process any remaining buffer content not terminated by \n
+        if (buffer.startsWith("data: ")) {
+            try {
+                const d = JSON.parse(buffer.slice(6));
+                if (d.type === "text") {
+                    fullText += d.content;
+                } else if (d.type === "done") {
+                    fullText = d.full_text;
+                }
+            } catch {}
+        }
+
         // Final sync update
         if (pendingUpdate) cancelAnimationFrame(pendingUpdate);
         outputText.textContent = fullText;
     } catch (err) {
+        if (pendingUpdate) { cancelAnimationFrame(pendingUpdate); pendingUpdate = null; }
         if (err.name === "AbortError") {
             outputText.textContent = "Traduction interrompue (timeout).";
         } else if (retryCount < MAX_RETRIES) {
-            finishTranslation();
+            retrying = true;
+            clearTimeout(timeout);
+            abortController = null;
             await new Promise(r => setTimeout(r, RETRY_DELAY * (retryCount + 1)));
             return translateText(retryCount + 1);
         } else {
-            outputText.textContent = `Erreur: ${err.message}. Veuillez réessayer.`;
+            outputText.textContent = "Erreur de traduction. Veuillez réessayer.";
         }
     } finally {
         clearTimeout(timeout);
         abortController = null;
+        if (!retrying) finishTranslation();
     }
 
     const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
@@ -137,8 +156,6 @@ async function translateText(retryCount = 0) {
         btnSpeak.style.display = "flex";
         addToHistory(text, fullText);
     }
-
-    finishTranslation();
 }
 
 function finishTranslation() {
@@ -317,7 +334,7 @@ btnMic.addEventListener("click", () => {
 btnMic.addEventListener("touchend", (e) => {
     e.preventDefault();
     btnMic.click();
-});
+}, { passive: false });
 
 // History
 function addToHistory(original, translated) {
@@ -336,7 +353,21 @@ function renderHistory() {
         const li = document.createElement("li");
         const origShort = truncate(h.original, 40);
         const tradShort = truncate(h.translated, 40);
-        li.innerHTML = `<span class="original">${escHtml(origShort)}</span><span class="sep">\u2192</span><span class="translated">${escHtml(tradShort)}</span>`;
+        const spanOrig = document.createElement("span");
+        spanOrig.className = "original";
+        spanOrig.textContent = origShort;
+
+        const spanSep = document.createElement("span");
+        spanSep.className = "sep";
+        spanSep.textContent = "\u2192";
+
+        const spanTrad = document.createElement("span");
+        spanTrad.className = "translated";
+        spanTrad.textContent = tradShort;
+
+        li.appendChild(spanOrig);
+        li.appendChild(spanSep);
+        li.appendChild(spanTrad);
         li.addEventListener("click", () => {
             inputText.value = h.original;
             outputText.textContent = h.translated;
@@ -354,10 +385,6 @@ function renderHistory() {
 
 function truncate(s, max) {
     return s.length > max ? s.slice(0, max) + "..." : s;
-}
-
-function escHtml(s) {
-    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 btnClearHistory.addEventListener("click", () => {

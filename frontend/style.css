@@ -15,8 +15,8 @@
     --accent-fr: #3498db;
     --accent-es: #e74c3c;
     --text: #eeeeee;
-    --text-dim: #99aabb;
-    --text-muted: #7a7a9a;
+    --text-dim: #aabccc;
+    --text-muted: #9090b8;
     --border: #2a2a4a;
     --radius: 14px;
     --transition: 0.2s ease;
@@ -30,6 +30,7 @@ body {
     min-height: 100vh;
     min-height: 100dvh;
     display: flex;
+    align-items: flex-start;
     justify-content: center;
     padding: 30px 20px calc(30px + var(--safe-bottom));
     -webkit-font-smoothing: antialiased;
@@ -154,6 +155,7 @@ textarea::placeholder {
     font-size: 1.05rem;
     line-height: 1.6;
     white-space: pre-wrap;
+    overflow-wrap: break-word;
     word-wrap: break-word;
     transition: opacity 0.3s ease;
 }
@@ -214,12 +216,27 @@ textarea::placeholder {
     background: var(--accent-es);
     color: white;
     border-color: var(--accent-es);
-    animation: pulse-active 1.5s ease infinite;
+    position: relative;
+    overflow: visible;
+}
+
+/* Pulse ring rendered on its own compositor layer — no repaints */
+.btn-circle.active::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 2px solid rgba(231, 76, 60, 0.7);
+    transform: scale(1);
+    opacity: 0.7;
+    animation: pulse-active 1.5s ease-out infinite;
+    will-change: transform, opacity;
+    pointer-events: none;
 }
 
 @keyframes pulse-active {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(231, 76, 60, 0.4); }
-    50% { box-shadow: 0 0 0 8px rgba(231, 76, 60, 0); }
+    0%   { transform: scale(1);    opacity: 0.7; }
+    100% { transform: scale(1.55); opacity: 0;   }
 }
 
 .btn-translate {
@@ -445,7 +462,7 @@ textarea:focus-visible {
 
     textarea,
     .output-area {
-        min-height: 120px;
+        min-height: 160px;
         font-size: 1rem;
     }
 
@@ -501,6 +518,6 @@ textarea:focus-visible {
     *::before,
     *::after {
         animation-duration: 0.01ms !important;
-        transition-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
     }
 }

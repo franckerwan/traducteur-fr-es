@@ -1,6 +1,7 @@
 import os
 import json
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 
@@ -14,23 +15,27 @@ from pydantic import BaseModel, Field
 
 from llm import translate, translate_stream, client as llm_client, MODEL as LLM_MODEL
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 MAX_TEXT_LENGTH = 5000
+TRANSLATE_TIMEOUT = 60
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
 
 
 def warmup():
     import time
     t0 = time.time()
-    print("[WARMUP] Pré-chauffe Gemini...", flush=True)
+    logger.info("[WARMUP] Pré-chauffe Gemini...")
     try:
         llm_client.models.generate_content(
             model=LLM_MODEL,
             contents=[{"role": "user", "parts": [{"text": "Bonjour"}]}],
             config={"max_output_tokens": 1},
         )
-        print(f"[WARMUP] Gemini prêt ({time.time()-t0:.1f}s)", flush=True)
+        logger.info("[WARMUP] Gemini prêt (%.1fs)", time.time() - t0)
     except Exception as e:
-        print(f"[WARMUP] Gemini: {e}", flush=True)
+        logger.warning("[WARMUP] Gemini: %s", e)
 
 
 @asynccontextmanager
@@ -46,15 +51,26 @@ class TranslateRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
 
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
 @app.post("/api/translate")
 async def route_translate(data: TranslateRequest):
     text = data.text.strip()
     if not text:
         raise HTTPException(400, "Texte vide")
     try:
-        result = await asyncio.to_thread(translate, text)
+        result = await asyncio.wait_for(
+            asyncio.to_thread(translate, text),
+            timeout=TRANSLATE_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "La traduction a pris trop de temps")
     except Exception as e:
-        raise HTTPException(502, f"Erreur du service de traduction: {e}")
+        logger.exception("Erreur traduction: %s", e)
+        raise HTTPException(502, "Erreur du service de traduction")
     return {"translation": result}
 
 
@@ -77,20 +93,30 @@ async def route_translate_stream(data: TranslateRequest):
             finally:
                 loop.call_soon_threadsafe(q.put_nowait, None)
 
-        loop.run_in_executor(None, _produce)
+        future = loop.run_in_executor(None, _produce)
 
         parts: list[str] = []
+        had_error = False
         while True:
             item = await q.get()
             if item is None:
                 break
             if isinstance(item, Exception):
-                yield f"data: {json.dumps({'type': 'error', 'message': str(item)})}\n\n"
+                logger.warning("Erreur streaming: %s", item)
+                yield f"data: {json.dumps({'type': 'error', 'message': 'Erreur du service de traduction'})}\n\n"
+                had_error = True
                 break
             parts.append(item)
             yield f"data: {json.dumps({'type': 'text', 'content': item})}\n\n"
 
-        yield f"data: {json.dumps({'type': 'done', 'full_text': ''.join(parts)})}\n\n"
+        if not had_error:
+            yield f"data: {json.dumps({'type': 'done', 'full_text': ''.join(parts)})}\n\n"
+
+        # S'assurer que le thread producteur est bien terminé
+        try:
+            await asyncio.wait_for(asyncio.wrap_future(future), timeout=5.0)
+        except Exception:
+            logger.debug("Thread producteur: timeout ou erreur à la fermeture")
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

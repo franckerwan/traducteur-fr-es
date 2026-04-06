@@ -2,19 +2,20 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="description" content="Traducteur instantané Français - Espagnol avec détection automatique">
     <meta name="theme-color" content="#f39c12">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Traducteur">
     <title>Traducteur FR - ES</title>
+    <link rel="icon" href="/static/icon-192.png">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <link rel="manifest" href="/static/manifest.json">
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <main id="app" role="main">
+    <main id="app">
         <header>
             <h1>Traducteur <span class="flag" aria-label="Français">FR</span> <span class="arrow" aria-hidden="true">&#8596;</span> <span class="flag" aria-label="Espagnol">ES</span></h1>
             <p class="subtitle">Traduction instantanée Français - Espagnol</p>
@@ -58,7 +59,7 @@
                 <div class="panel-header">
                     <span id="output-lang">Traduction</span>
                 </div>
-                <div id="output-text" class="output-area" role="status" aria-live="polite" aria-label="Résultat de la traduction">
+                <div id="output-text" class="output-area" role="status" aria-label="Résultat de la traduction">
                     <span class="placeholder">La traduction apparaitra ici...</span>
                 </div>
                 <div class="panel-footer">
